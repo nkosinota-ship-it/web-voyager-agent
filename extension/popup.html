@@ -2,46 +2,77 @@
 <html>
 <head>
   <style>
-    body { width: 300px; padding: 15px; font-family: sans-serif; background: #0f172a; color: white; }
-    .btn { background: #3b82f6; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 5px; }
-    textarea, input[type="password"] { width: 100%; background: #1e293b; border: 1px solid #334155; color: white; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; }
+    body { width: 320px; padding: 15px; font-family: sans-serif; background: #0f172a; color: white; }
+    .btn { background: #3b82f6; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    textarea, input[type="password"] { width: 100%; background: #1e293b; border: 1px solid #334155; color: white; padding: 8px; box-sizing: border-box; margin-bottom: 6px; border-radius: 4px; font-family: sans-serif; font-size: 12px; }
     h2 { font-size: 14px; margin-top: 0; color: #94a3b8; text-transform: uppercase; }
-    label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px; }
-    .saved { color: #22c55e; font-size: 11px; display: none; margin-bottom: 8px; }
+    h3 { font-size: 12px; margin: 12px 0 6px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+    label { font-size: 11px; color: #94a3b8; display: block; margin-bottom: 3px; }
+    .saved { color: #22c55e; font-size: 11px; display: none; margin-bottom: 4px; }
+    .cascade-info { font-size: 10px; color: #475569; margin-bottom: 10px; line-height: 1.4; }
   </style>
 </head>
 <body>
   <h2>Super Agent Mission</h2>
 
-  <label for="apikey">Gemini API Key</label>
-  <input type="password" id="apikey" placeholder="Paste your Gemini API key" />
-  <div class="saved" id="saved">✓ Key saved</div>
+  <h3>API Keys (Cascade Order)</h3>
+  <p class="cascade-info">The agent tries each provider in order. Add at least one key. First successful response wins.</p>
 
-  <label for="task">Objective</label>
+  <label for="geminiKey">1. Gemini API Key</label>
+  <input type="password" id="geminiKey" placeholder="Gemini key" />
+
+  <label for="mistralKey">2. Mistral API Key</label>
+  <input type="password" id="mistralKey" placeholder="Mistral key" />
+
+  <label for="groqKey">3. Groq API Key</label>
+  <input type="password" id="groqKey" placeholder="Groq key" />
+
+  <label for="sambaNovaKey">4. SambaNova API Key</label>
+  <input type="password" id="sambaNovaKey" placeholder="SambaNova key" />
+
+  <div class="saved" id="saved">✓ Keys saved</div>
+
+  <h3>Objective</h3>
   <textarea id="task" rows="3" placeholder="Enter objective (e.g. Fill out this survey)"></textarea>
   <button id="run" class="btn">START AUTONOMOUS LOOP</button>
 
   <script>
-    const apiKeyInput = document.getElementById('apikey');
+    const keyFields = [
+      { id: 'geminiKey', storage: 'geminiApiKey' },
+      { id: 'mistralKey', storage: 'mistralApiKey' },
+      { id: 'groqKey', storage: 'groqApiKey' },
+      { id: 'sambaNovaKey', storage: 'sambaNovaApiKey' },
+    ];
     const savedMsg = document.getElementById('saved');
 
-    // Load saved key on open
-    chrome.storage.local.get('geminiApiKey', (data) => {
-      if (data.geminiApiKey) apiKeyInput.value = data.geminiApiKey;
+    // Load saved keys
+    const storageKeys = keyFields.map(f => f.storage);
+    chrome.storage.local.get(storageKeys, (data) => {
+      keyFields.forEach(f => {
+        if (data[f.storage]) document.getElementById(f.id).value = data[f.storage];
+      });
     });
 
-    // Save key on change
-    apiKeyInput.addEventListener('change', () => {
-      chrome.storage.local.set({ geminiApiKey: apiKeyInput.value }, () => {
-        savedMsg.style.display = 'block';
-        setTimeout(() => savedMsg.style.display = 'none', 2000);
+    // Save on change
+    keyFields.forEach(f => {
+      document.getElementById(f.id).addEventListener('change', () => {
+        const val = document.getElementById(f.id).value.trim();
+        chrome.storage.local.set({ [f.storage]: val }, () => {
+          savedMsg.style.display = 'block';
+          setTimeout(() => savedMsg.style.display = 'none', 2000);
+        });
       });
     });
 
     document.getElementById('run').onclick = async () => {
-      const key = apiKeyInput.value.trim();
-      if (!key) { alert('Please enter your Gemini API key first.'); return; }
-      chrome.storage.local.set({ geminiApiKey: key });
+      // Check at least one key is set
+      const allEmpty = keyFields.every(f => !document.getElementById(f.id).value.trim());
+      if (allEmpty) { alert('Please enter at least one API key.'); return; }
+
+      // Save all keys before running
+      const toSave = {};
+      keyFields.forEach(f => { toSave[f.storage] = document.getElementById(f.id).value.trim(); });
+      chrome.storage.local.set(toSave);
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const task = document.getElementById('task').value;
@@ -49,8 +80,8 @@
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: (t) => {
-          const elements = Array.from(document.querySelectorAll('button, input, a'))
-            .map(el => ({ tag: el.tagName, text: el.innerText, selector: el.tagName.toLowerCase() }));
+          const elements = Array.from(document.querySelectorAll('button, input, a, select, textarea'))
+            .map(el => ({ tag: el.tagName, text: el.innerText || el.placeholder || '', selector: el.tagName.toLowerCase() }));
           chrome.runtime.sendMessage({
             type: "ANALYZE_PAGE",
             payload: { url: window.location.href, elements, task: t }
