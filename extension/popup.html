@@ -3,32 +3,60 @@
 <head>
   <style>
     body { width: 300px; padding: 15px; font-family: sans-serif; background: #0f172a; color: white; }
-    .btn { background: #3b82f6; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; }
-    textarea { width: 100%; background: #1e293b; border: 1px solid #334155; color: white; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; }
+    .btn { background: #3b82f6; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+    textarea, input[type="password"] { width: 100%; background: #1e293b; border: 1px solid #334155; color: white; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; font-family: sans-serif; }
     h2 { font-size: 14px; margin-top: 0; color: #94a3b8; text-transform: uppercase; }
+    label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px; }
+    .saved { color: #22c55e; font-size: 11px; display: none; margin-bottom: 8px; }
   </style>
 </head>
 <body>
   <h2>Super Agent Mission</h2>
-  <textarea id="task" rows="3" placeholder='Enter objective (e.g. Fill out this survey)'></textarea>
+
+  <label for="apikey">Gemini API Key</label>
+  <input type="password" id="apikey" placeholder="Paste your Gemini API key" />
+  <div class="saved" id="saved">✓ Key saved</div>
+
+  <label for="task">Objective</label>
+  <textarea id="task" rows="3" placeholder="Enter objective (e.g. Fill out this survey)"></textarea>
   <button id="run" class="btn">START AUTONOMOUS LOOP</button>
-  
+
   <script>
+    const apiKeyInput = document.getElementById('apikey');
+    const savedMsg = document.getElementById('saved');
+
+    // Load saved key on open
+    chrome.storage.local.get('geminiApiKey', (data) => {
+      if (data.geminiApiKey) apiKeyInput.value = data.geminiApiKey;
+    });
+
+    // Save key on change
+    apiKeyInput.addEventListener('change', () => {
+      chrome.storage.local.set({ geminiApiKey: apiKeyInput.value }, () => {
+        savedMsg.style.display = 'block';
+        setTimeout(() => savedMsg.style.display = 'none', 2000);
+      });
+    });
+
     document.getElementById('run').onclick = async () => {
+      const key = apiKeyInput.value.trim();
+      if (!key) { alert('Please enter your Gemini API key first.'); return; }
+      chrome.storage.local.set({ geminiApiKey: key });
+
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const task = document.getElementById('task').value;
-      
+
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: () => {
+        func: (t) => {
           const elements = Array.from(document.querySelectorAll('button, input, a'))
             .map(el => ({ tag: el.tagName, text: el.innerText, selector: el.tagName.toLowerCase() }));
-          
           chrome.runtime.sendMessage({
-            type: 'ANALYZE_PAGE',
-            payload: { url: window.location.href, elements, task: window.currentTask }
+            type: "ANALYZE_PAGE",
+            payload: { url: window.location.href, elements, task: t }
           });
-        }
+        },
+        args: [task]
       });
     };
   </script>
